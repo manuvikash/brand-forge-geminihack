@@ -110,7 +110,7 @@ const AssetGenerator: React.FC<AssetGeneratorProps> = ({ dna, onGenerateAsset, i
               <div className="flex items-start gap-2">
                   <AlertTriangle className="w-5 h-5 text-yellow-500 shrink-0" />
                   <p>
-                    High-quality generation ({activeType === AssetType.VIDEO ? 'Veo 3.1' : 'Gemini 3 Pro'}) requires a paid billing project.
+                    High-quality generation ({activeType === AssetType.VIDEO ? 'Veo 2' : 'Imagen 3'}) requires a paid billing project.
                   </p>
               </div>
                <button 
@@ -143,7 +143,7 @@ const AssetGenerator: React.FC<AssetGeneratorProps> = ({ dna, onGenerateAsset, i
             )}
         </button>
         <p className="text-center text-xs text-zinc-600 mt-3">
-            Using {activeType === AssetType.VIDEO ? 'Veo 3.1' : 'Gemini 3 Pro'}
+            Using {activeType === AssetType.VIDEO ? 'Veo 2' : 'Imagen 3'}
         </p>
       </div>
     </div>

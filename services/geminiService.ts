@@ -82,15 +82,18 @@ export const generateBrandDNA = async (
   if (websiteUrl) {
     try {
       onStatusUpdate?.(`Scanning ${websiteUrl} for visual cues...`);
+      const searchPrompt = `Research the visual identity and brand values of ${name} at ${websiteUrl}. Summarize the color palette, font styles, and overall vibe. Find a direct URL to their logo if possible.`;
+      console.log('🔍 [SEARCH GROUNDING] Prompt:', searchPrompt);
       const searchResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: `Research the visual identity and brand values of ${name} at ${websiteUrl}. Summarize the color palette, font styles, and overall vibe. Find a direct URL to their logo if possible.`,
+        model: 'gemini-3-pro-preview',
+        contents: searchPrompt,
         config: { tools: [{ googleSearch: {} }] }
       });
       searchContext = searchResponse.text || "";
+      console.log('🔍 [SEARCH GROUNDING] Response:', searchContext);
       onStatusUpdate?.("Website context acquired...");
     } catch (e) {
-      console.warn("Search grounding failed, proceeding with text only", e);
+      console.warn("❌ [SEARCH GROUNDING] Failed:", e);
       onStatusUpdate?.("Web scan skipped, proceeding with description...");
     }
   } else {
@@ -120,18 +123,23 @@ export const generateBrandDNA = async (
     IMPORTANT: If you found a logo URL in the web context, include it in the 'logoUrl' field.
   `;
 
+  console.log('🧬 [BRAND DNA] Prompt:', prompt);
+  console.log('🧬 [BRAND DNA] Schema:', JSON.stringify(schema, null, 2));
+
   onStatusUpdate?.("Synthesizing Color Palette & Typography...");
   // Artificial delay for UX pacing if the search was too fast
   if (!websiteUrl) await new Promise(r => setTimeout(r, 800));
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-pro-preview',
     contents: prompt,
     config: {
       responseMimeType: "application/json",
       responseSchema: schema,
     }
   });
+  
+  console.log('🧬 [BRAND DNA] Raw Response:', response.text);
 
   onStatusUpdate?.("Finalizing Design System...");
 
@@ -162,12 +170,15 @@ export const generateBrandDNA = async (
 export const analyzeInspiration = async (base64Image: string, userNote: string): Promise<string[]> => {
   const ai = getClient();
 
+  const analysisPrompt = `Analyze this image. User note: "${userNote}". Extract 3-5 short, specific visual style cues (e.g., 'Chromatic aberration', 'Halftone patterns') that can be used in a prompt.`;
+  console.log('🎨 [INSPIRATION] Analyzing image with prompt:', analysisPrompt);
+
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-pro-preview',
     contents: {
       parts: [
         { inlineData: { mimeType: 'image/png', data: base64Image.split(',')[1] } },
-        { text: `Analyze this image. User note: "${userNote}". Extract 3-5 short, specific visual style cues (e.g., 'Chromatic aberration', 'Halftone patterns') that can be used in a prompt.` }
+        { text: analysisPrompt }
       ]
     },
     config: {
@@ -181,7 +192,9 @@ export const analyzeInspiration = async (base64Image: string, userNote: string):
 
   let jsonStr = response.text || "[]";
   jsonStr = jsonStr.replace(/^```json\s*/, "").replace(/\s*```$/, "");
-  return JSON.parse(jsonStr);
+  const cues = JSON.parse(jsonStr);
+  console.log('🎨 [INSPIRATION] Extracted cues:', cues);
+  return cues;
 };
 
 // --- ASSET CREATION ---
@@ -196,18 +209,50 @@ const buildPrompt = (dna: BrandDNA, inspirations: Inspiration[], type: AssetType
     : `The design incorporates the brand name "${dna.name}" stylized as a logo.`;
 
   let basePrompt = "";
+  
+  // Create detailed garment descriptions
+  const getGarmentDetails = (subtype: string) => {
+    const st = subtype.toLowerCase();
+    if (st.includes('hoodie')) {
+      return 'A pullover hoodie with a drawstring hood, kangaroo front pocket, and ribbed cuffs and hem. This is specifically a HOODIE with long sleeves and a hood, NOT a t-shirt.';
+    } else if (st.includes('t-shirt') || st.includes('tshirt')) {
+      return 'A short-sleeved t-shirt with a crew neck. This is specifically a T-SHIRT with short sleeves and no hood, NOT a hoodie.';
+    } else if (st.includes('cap') || st.includes('hat')) {
+      return 'A baseball cap with curved brim and adjustable back strap.';
+    } else if (st.includes('tote')) {
+      return 'A canvas tote bag with sturdy handles.';
+    } else if (st.includes('mug')) {
+      return 'A ceramic coffee mug with a handle.';
+    }
+    return `A ${subtype}`;
+  };
+
   switch (type) {
     case AssetType.MERCHANDISE:
-      // Force physical product photography look
+      // CRITICAL: Be extremely specific about garment type to prevent confusion
+      const garmentDetails = getGarmentDetails(subtype);
       basePrompt = `
-        A professional, photorealistic product photography shot of a physical ${subtype}.
-        The ${subtype} is made of high-quality material.
-        The base color of the item is ${primaryColor}.
-        It features a prominent graphic design printed on it.
+        CRITICAL INSTRUCTION: You MUST generate exactly a "${subtype}" and nothing else. Pay careful attention to the garment type.
+        
+        ${garmentDetails}
+        
+        PRODUCT DETAILS:
+        - Item: ${subtype} (follow the exact specifications above)
+        - Base fabric/material color: ${primaryColor}
+        - Features a bold, eye-catching graphic design printed on the front
+        - Material: High-quality, premium fabric/material with visible texture
+        - Photography style: Professional product photography, studio setting
+        - Background: Clean, neutral (white or light gray)
+        - Lighting: Soft, even studio lighting with subtle shadows
+        - Resolution: 4K quality with highly detailed fabric/material texture
+        
+        DESIGN ELEMENTS:
         ${logoInstruction}
-        The design reflects this vibe: ${dna.visualEssence}.
-        The design uses the accent color: ${accentColor}.
-        Lighting: Clean studio lighting, neutral background, 4k, highly detailed fabric texture.
+        - Design vibe: ${dna.visualEssence}
+        - Accent color in design: ${accentColor}
+        - Design should be centered and prominent
+        
+        CRITICAL: This must be a ${subtype}, not any other garment type. Verify the garment matches "${subtype}" exactly.
       `;
       break;
 
@@ -235,7 +280,7 @@ const buildPrompt = (dna: BrandDNA, inspirations: Inspiration[], type: AssetType
       basePrompt = `A creative brand asset (${subtype}) for "${dna.name}".`;
   }
 
-  return `
+  const finalPrompt = `
     ${basePrompt}
     ${specificInstruction ? `Instruction: ${specificInstruction}` : ''}
     
@@ -250,6 +295,19 @@ const buildPrompt = (dna: BrandDNA, inspirations: Inspiration[], type: AssetType
     - Quality: Production ready, sharp focus.
     - Consistency: Adhere strictly to the color palette.
   `;
+  
+  console.log('📝 [PROMPT BUILDER]', {
+    type,
+    subtype,
+    brandName: dna.name,
+    colors: dna.colors,
+    hasLogo: !!dna.logoImage,
+    inspirationCount: inspirations.length,
+    promptLength: finalPrompt.length
+  });
+  console.log('📝 [FULL PROMPT]:', finalPrompt);
+  
+  return finalPrompt;
 };
 
 // Phase 1: Drafts (Fast, Low Res) using Flash Image
@@ -257,10 +315,13 @@ export const generateDrafts = async (dna: BrandDNA, inspirations: Inspiration[],
   const ai = getClient();
   const promptText = buildPrompt(dna, inspirations, type, subtype, "Create 4 distinct variations.");
 
+  console.log('🎨 [DRAFT GENERATION] Starting...', { type, subtype, hasLogo: !!dna.logoImage });
+
   const parts: any[] = [{ text: promptText }];
 
   // Inject Logo if available
   if (dna.logoImage) {
+    console.log('🖼️  [DRAFT GENERATION] Adding logo to parts');
     parts.push({
       inlineData: { mimeType: 'image/png', data: dna.logoImage.split(',')[1] }
     });
@@ -268,11 +329,12 @@ export const generateDrafts = async (dna: BrandDNA, inspirations: Inspiration[],
     parts.push({ text: "Use the image above as the Brand Logo referenced in the prompt. Place it naturally on the product." });
   }
 
-  // Flash Image generates 1 image per request usually, so we parallelize or just ask for 1 fast one if batching not supported well in library yet.
+  // Generate images using Imagen 3
   // We'll generate 4 parallel requests for diversity.
+  console.log('🎨 [DRAFT GENERATION] Using model: gemini-3-pro-image-preview');
   const promises = Array(4).fill(0).map(() =>
     ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: 'gemini-3-pro-image-preview',
       contents: { parts }, // Use constructed parts with potential logo
       config: {
         imageConfig: { aspectRatio: "1:1" }
@@ -283,12 +345,17 @@ export const generateDrafts = async (dna: BrandDNA, inspirations: Inspiration[],
   const responses = await Promise.all(promises);
 
   const images: string[] = [];
-  responses.forEach(res => {
+  responses.forEach((res, idx) => {
+    console.log(`🎨 [DRAFT ${idx + 1}] Candidates:`, res.candidates?.length || 0);
     res.candidates?.[0]?.content?.parts?.forEach(part => {
-      if (part.inlineData) images.push(`data:image/png;base64,${part.inlineData.data}`);
+      if (part.inlineData) {
+        images.push(`data:image/png;base64,${part.inlineData.data}`);
+        console.log(`✅ [DRAFT ${idx + 1}] Image generated successfully`);
+      }
     });
   });
 
+  console.log(`🎨 [DRAFT GENERATION] Complete. Generated ${images.length} images`);
   return images;
 };
 
@@ -301,6 +368,9 @@ export const editAsset = async (
 ): Promise<string> => {
   const ai = getClient();
 
+  console.log('✏️  [EDIT ASSET] Instruction:', instruction);
+  console.log('✏️  [EDIT ASSET] Has mask:', !!maskImage);
+
   const parts: any[] = [
     { inlineData: { mimeType: 'image/png', data: originalImage.split(',')[1] } },
     { text: instruction }
@@ -312,10 +382,13 @@ export const editAsset = async (
     parts.push({ text: "Use the second image as a sketch/mask guidance for the changes." });
   }
 
+  console.log('✏️  [EDIT ASSET] Using model: gemini-3-pro-image-preview');
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-image',
+    model: 'gemini-3-pro-image-preview',
     contents: { parts },
   });
+  
+  console.log('✏️  [EDIT ASSET] Response received');
 
   for (const part of response.candidates?.[0]?.content?.parts || []) {
     if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
@@ -323,7 +396,7 @@ export const editAsset = async (
   throw new Error("Editing failed");
 };
 
-// Phase 3: Finalize (High Res) using Pro Image
+// Phase 3: Finalize (High Res) using Imagen 3
 export const finalizeAsset = async (dna: BrandDNA, draftImage: string, subtype: string): Promise<string> => {
   const ai = getClient();
 
@@ -334,6 +407,11 @@ export const finalizeAsset = async (dna: BrandDNA, draftImage: string, subtype: 
     Maintain the composition and colors of the reference image exactly, but improve texture, lighting, and detail.
     Resolution: 4K.
   `;
+
+  console.log('🎯 [FINALIZE] Model: gemini-3-pro-image-preview');
+  console.log('🎯 [FINALIZE] Prompt:', prompt);
+  console.log('🎯 [FINALIZE] Subtype:', subtype);
+  console.log('🎯 [FINALIZE] Has logo:', !!dna.logoImage);
 
   const parts: any[] = [
     { inlineData: { mimeType: 'image/png', data: draftImage.split(',')[1] } },
@@ -356,13 +434,19 @@ export const finalizeAsset = async (dna: BrandDNA, draftImage: string, subtype: 
     }
   });
 
+  console.log('🎯 [FINALIZE] Response candidates:', response.candidates?.length || 0);
+
   for (const part of response.candidates?.[0]?.content?.parts || []) {
-    if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+    if (part.inlineData) {
+      console.log('✅ [FINALIZE] High-res image generated successfully');
+      return `data:image/png;base64,${part.inlineData.data}`;
+    }
   }
+  console.error('❌ [FINALIZE] No image data in response');
   throw new Error("Finalization failed");
 };
 
-// Phase 4: Visualize (Veo)
+// Phase 4: Visualize (Veo 2)
 export const generateVisualizationVideo = async (assetImage: string, subtype: string): Promise<string> => {
   const ai = getClient();
 
@@ -375,8 +459,12 @@ export const generateVisualizationVideo = async (assetImage: string, subtype: st
     prompt = "A cinematic commercial showcase of this product, rotating slowly in a studio environment.";
   }
 
+  console.log('🎬 [VIDEO] Model: veo-2.0-generate-exp');
+  console.log('🎬 [VIDEO] Prompt:', prompt);
+  console.log('🎬 [VIDEO] Subtype:', subtype);
+
   let operation = await ai.models.generateVideos({
-    model: 'veo-3.1-fast-generate-preview',
+    model: 'veo-2.0-generate-exp',
     prompt: prompt,
     image: {
       imageBytes: assetImage.split(',')[1],
@@ -384,14 +472,23 @@ export const generateVisualizationVideo = async (assetImage: string, subtype: st
     },
     config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '16:9' }
   });
+  
+  console.log('🎬 [VIDEO] Operation started, polling for completion...');
 
+  let pollCount = 0;
   while (!operation.done) {
     await new Promise(resolve => setTimeout(resolve, 5000));
     operation = await ai.operations.getVideosOperation({ operation });
+    pollCount++;
+    console.log(`🎬 [VIDEO] Poll ${pollCount}: ${operation.done ? 'COMPLETE' : 'In progress...'}`);
   }
 
   const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
-  if (!videoUri) throw new Error("Video generation failed");
+  if (!videoUri) {
+    console.error('❌ [VIDEO] No video URI in response');
+    throw new Error("Video generation failed");
+  }
 
+  console.log('✅ [VIDEO] Video generated successfully:', videoUri);
   return `${videoUri}&key=${process.env.API_KEY}`;
 };

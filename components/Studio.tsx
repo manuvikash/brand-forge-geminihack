@@ -15,6 +15,7 @@ const Studio: React.FC<StudioProps> = ({ dna, inspirations, onAssetCreated }) =>
   const [step, setStep] = useState(0);
   const [selectedType, setSelectedType] = useState<AssetType>(AssetType.MERCHANDISE);
   const [selectedSubtype, setSelectedSubtype] = useState('');
+  const [currentSubtype, setCurrentSubtype] = useState(''); // Store the actual subtype used for current drafts
   
   const [drafts, setDrafts] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -30,11 +31,12 @@ const Studio: React.FC<StudioProps> = ({ dna, inspirations, onAssetCreated }) =>
     { id: AssetType.DIGITAL, icon: Monitor, label: 'Digital', items: ['Social Post', 'Banner', 'App Icon'] },
   ];
 
-  const handleGenerateDrafts = async () => {
+  const handleGenerateDrafts = async (subtype: string) => {
     setIsLoading(true);
     setStep(2);
+    setCurrentSubtype(subtype); // Store the subtype being used for these drafts
     try {
-      const results = await generateDrafts(dna, inspirations, selectedType, selectedSubtype);
+      const results = await generateDrafts(dna, inspirations, selectedType, subtype);
       setDrafts(results);
       setStep(3);
     } catch (e) {
@@ -75,12 +77,12 @@ const Studio: React.FC<StudioProps> = ({ dna, inspirations, onAssetCreated }) =>
     } catch(e) { console.warn("Key check skipped", e)}
 
     try {
-      const highResUrl = await finalizeAsset(dna, drafts[editingIndex], selectedSubtype);
+      const highResUrl = await finalizeAsset(dna, drafts[editingIndex], currentSubtype);
       
       const newAsset: GeneratedAsset = {
           id: crypto.randomUUID(),
           type: selectedType,
-          subtype: selectedSubtype,
+          subtype: currentSubtype,
           url: highResUrl,
           promptUsed: 'Finalized from draft',
           createdAt: Date.now(),
@@ -92,6 +94,7 @@ const Studio: React.FC<StudioProps> = ({ dna, inspirations, onAssetCreated }) =>
       setStep(0);
       setDrafts([]);
       setEditingIndex(null);
+      setCurrentSubtype('');
     } catch (e) {
       console.error(e);
       alert("Finalization failed");
@@ -134,7 +137,7 @@ const Studio: React.FC<StudioProps> = ({ dna, inspirations, onAssetCreated }) =>
           {category?.items.map((item) => (
             <button
               key={item}
-              onClick={() => { setSelectedSubtype(item); handleGenerateDrafts(); }}
+              onClick={() => { setSelectedSubtype(item); handleGenerateDrafts(item); }}
               className="p-4 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-300 hover:bg-white hover:text-black hover:font-bold transition-all"
             >
               {item}
@@ -152,7 +155,7 @@ const Studio: React.FC<StudioProps> = ({ dna, inspirations, onAssetCreated }) =>
       <div className="flex flex-col items-center justify-center h-full py-20">
         <Loader2 className="w-12 h-12 text-orange-500 animate-spin mb-4" />
         <h3 className="text-xl font-bold text-white">Forging Concepts...</h3>
-        <p className="text-zinc-500 mt-2">Generating low-latency drafts using Gemini 2.5 Flash</p>
+        <p className="text-zinc-500 mt-2">Generating low-latency drafts using Gemini 3 pro</p>
       </div>
     );
   }

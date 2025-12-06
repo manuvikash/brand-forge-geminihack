@@ -28,7 +28,7 @@ const LoadingView: React.FC<{ status: string }> = ({ status }) => (
       <div className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-red-600 animate-pulse">
         {status}
       </div>
-      <p className="text-zinc-500 text-sm">Gemini 2.5 is analyzing semantic and visual data...</p>
+      <p className="text-zinc-500 text-sm">Gemini 3.0 Experimental...</p>
     </div>
 
     {/* Pseudo-progress steps visualizer */}
