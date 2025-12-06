@@ -313,7 +313,7 @@ const buildPrompt = (dna: BrandDNA, inspirations: Inspiration[], type: AssetType
 // Phase 1: Drafts (Fast, Low Res) using Flash Image
 export const generateDrafts = async (dna: BrandDNA, inspirations: Inspiration[], type: AssetType, subtype: string): Promise<string[]> => {
   const ai = getClient();
-  const promptText = buildPrompt(dna, inspirations, type, subtype, "Create 4 distinct variations.");
+  const promptText = buildPrompt(dna, inspirations, type, subtype);
 
   console.log('🎨 [DRAFT GENERATION] Starting...', { type, subtype, hasLogo: !!dna.logoImage });
 
@@ -330,17 +330,14 @@ export const generateDrafts = async (dna: BrandDNA, inspirations: Inspiration[],
   }
 
   // Generate images using Imagen 3
-  // We'll generate 4 parallel requests for diversity.
   console.log('🎨 [DRAFT GENERATION] Using model: gemini-3-pro-image-preview');
-  const promises = Array(4).fill(0).map(() =>
-    ai.models.generateContent({
-      model: 'gemini-3-pro-image-preview',
-      contents: { parts }, // Use constructed parts with potential logo
-      config: {
-        imageConfig: { aspectRatio: "1:1" }
-      }
-    })
-  );
+  const promises = [ai.models.generateContent({
+    model: 'gemini-3-pro-image-preview',
+    contents: { parts }, // Use constructed parts with potential logo
+    config: {
+      imageConfig: { aspectRatio: "1:1" }
+    }
+  })];
 
   const responses = await Promise.all(promises);
 
