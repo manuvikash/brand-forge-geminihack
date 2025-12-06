@@ -10,11 +10,18 @@ const getClient = (apiKey?: string) => {
 // --- HELPERS ---
 
 // Helper to fetch image from URL and convert to Base64 via CORS proxy
-const fetchImageToBase64 = async (url: string): Promise<string | undefined> => {
+export const fetchImageToBase64 = async (url: string): Promise<string | undefined> => {
   try {
-    // Use allorigins to bypass CORS for demo purposes
-    const response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`);
+    // Use corsproxy.io to bypass CORS for demo purposes
+    const response = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
     if (!response.ok) return undefined;
+
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.startsWith("image/")) {
+      console.warn("Fetched URL is not an image:", contentType);
+      return undefined;
+    }
+
     const blob = await response.blob();
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -27,16 +34,47 @@ const fetchImageToBase64 = async (url: string): Promise<string | undefined> => {
   }
 };
 
+export const fetchLogoFromUrl = async (websiteUrl: string): Promise<string | undefined> => {
+  try {
+    const domain = new URL(websiteUrl).hostname;
+
+    // Fallback chain: Try multiple sources for maximum compatibility
+    const sources = [
+      // 1. Google Favicon Service (most reliable, works for almost any site)
+      `https://www.google.com/s2/favicons?domain=${domain}&sz=128`,
+      // 2. DuckDuckGo Icons (good fallback)
+      `https://icons.duckduckgo.com/ip3/${domain}.ico`,
+      // 3. Clearbit (works for well-known brands)
+      `https://logo.clearbit.com/${domain}`,
+    ];
+
+    for (const logoUrl of sources) {
+      console.log(`Trying logo source: ${logoUrl}`);
+      const result = await fetchImageToBase64(logoUrl);
+      if (result) {
+        console.log(`Successfully fetched logo from: ${logoUrl}`);
+        return result;
+      }
+    }
+
+    console.warn("All logo sources failed for domain:", domain);
+    return undefined;
+  } catch (e) {
+    console.warn("Invalid URL for logo fetching", e);
+    return undefined;
+  }
+};
+
 // --- BRAND IDENTITY ---
 
 export const generateBrandDNA = async (
-  name: string, 
-  description: string, 
+  name: string,
+  description: string,
   websiteUrl?: string,
   onStatusUpdate?: (status: string) => void
 ): Promise<BrandDNA> => {
   const ai = getClient();
-  
+
   onStatusUpdate?.("Initializing AI Agent...");
 
   // If URL is provided, use Google Search to get context
@@ -96,19 +134,19 @@ export const generateBrandDNA = async (
   });
 
   onStatusUpdate?.("Finalizing Design System...");
-  
+
   // Clean potential markdown wrapping before parsing
   let jsonStr = response.text || "{}";
   jsonStr = jsonStr.replace(/^```json\s*/, "").replace(/\s*```$/, "");
 
   const data = JSON.parse(jsonStr);
-  
+
   let extractedLogoImage: string | undefined = undefined;
   if (data.logoUrl && data.logoUrl.length > 0) {
-      onStatusUpdate?.("Extracting Logo Asset...");
-      extractedLogoImage = await fetchImageToBase64(data.logoUrl);
+    onStatusUpdate?.("Extracting Logo Asset...");
+    extractedLogoImage = await fetchImageToBase64(data.logoUrl);
   }
-  
+
   onStatusUpdate?.("Brand DNA Forged.");
   return {
     name,
@@ -123,7 +161,7 @@ export const generateBrandDNA = async (
 
 export const analyzeInspiration = async (base64Image: string, userNote: string): Promise<string[]> => {
   const ai = getClient();
-  
+
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash',
     contents: {
@@ -152,14 +190,14 @@ const buildPrompt = (dna: BrandDNA, inspirations: Inspiration[], type: AssetType
   const inspirationCues = inspirations.map(i => i.extractedCues.join(", ")).join("; ");
   const primaryColor = dna.colors[0] || "white";
   const accentColor = dna.colors[1] || "black";
-  
-  const logoInstruction = dna.logoImage 
-    ? "IMPORTANT: Incorporate the provided Logo image into the design. It should be clearly visible, undistorted, and placed appropriately for this item." 
+
+  const logoInstruction = dna.logoImage
+    ? "IMPORTANT: Incorporate the provided Logo image into the design. It should be clearly visible, undistorted, and placed appropriately for this item."
     : `The design incorporates the brand name "${dna.name}" stylized as a logo.`;
 
   let basePrompt = "";
   switch (type) {
-    case AssetType.MERCHANDISE: 
+    case AssetType.MERCHANDISE:
       // Force physical product photography look
       basePrompt = `
         A professional, photorealistic product photography shot of a physical ${subtype}.
@@ -170,30 +208,30 @@ const buildPrompt = (dna: BrandDNA, inspirations: Inspiration[], type: AssetType
         The design reflects this vibe: ${dna.visualEssence}.
         The design uses the accent color: ${accentColor}.
         Lighting: Clean studio lighting, neutral background, 4k, highly detailed fabric texture.
-      `; 
+      `;
       break;
-      
-    case AssetType.MARKETING: 
+
+    case AssetType.MARKETING:
       basePrompt = `
         A professional ${subtype} design for the brand "${dna.name}".
         Layout: Modern, clean, and high-impact.
         ${logoInstruction}
         Visuals: Incorporate the brand colors (${dna.colors.join(", ")}) and typography (${dna.typography}).
         Content: It should convey the vibe: ${dna.visualEssence}.
-      `; 
+      `;
       break;
-      
-    case AssetType.DIGITAL: 
+
+    case AssetType.DIGITAL:
       basePrompt = `
         A digital asset: ${subtype} for the brand "${dna.name}".
         Style: Optimized for screens, UI/UX friendly, digital art style.
         ${logoInstruction}
         Colors: ${dna.colors.join(", ")}.
         Vibe: ${dna.visualEssence}.
-      `; 
+      `;
       break;
-      
-    default: 
+
+    default:
       basePrompt = `A creative brand asset (${subtype}) for "${dna.name}".`;
   }
 
@@ -220,11 +258,11 @@ export const generateDrafts = async (dna: BrandDNA, inspirations: Inspiration[],
   const promptText = buildPrompt(dna, inspirations, type, subtype, "Create 4 distinct variations.");
 
   const parts: any[] = [{ text: promptText }];
-  
+
   // Inject Logo if available
   if (dna.logoImage) {
-    parts.push({ 
-        inlineData: { mimeType: 'image/png', data: dna.logoImage.split(',')[1] } 
+    parts.push({
+      inlineData: { mimeType: 'image/png', data: dna.logoImage.split(',')[1] }
     });
     // Add instruction for the image part
     parts.push({ text: "Use the image above as the Brand Logo referenced in the prompt. Place it naturally on the product." });
@@ -232,7 +270,7 @@ export const generateDrafts = async (dna: BrandDNA, inspirations: Inspiration[],
 
   // Flash Image generates 1 image per request usually, so we parallelize or just ask for 1 fast one if batching not supported well in library yet.
   // We'll generate 4 parallel requests for diversity.
-  const promises = Array(4).fill(0).map(() => 
+  const promises = Array(4).fill(0).map(() =>
     ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: { parts }, // Use constructed parts with potential logo
@@ -243,7 +281,7 @@ export const generateDrafts = async (dna: BrandDNA, inspirations: Inspiration[],
   );
 
   const responses = await Promise.all(promises);
-  
+
   const images: string[] = [];
   responses.forEach(res => {
     res.candidates?.[0]?.content?.parts?.forEach(part => {
@@ -257,12 +295,12 @@ export const generateDrafts = async (dna: BrandDNA, inspirations: Inspiration[],
 // Phase 2: Edit/Refine (Flash Image or Pro Image)
 // Used when user draws on the image or changes the prompt for a specific draft
 export const editAsset = async (
-  originalImage: string, 
-  maskImage: string | null, 
+  originalImage: string,
+  maskImage: string | null,
   instruction: string
 ): Promise<string> => {
   const ai = getClient();
-  
+
   const parts: any[] = [
     { inlineData: { mimeType: 'image/png', data: originalImage.split(',')[1] } },
     { text: instruction }
@@ -270,8 +308,8 @@ export const editAsset = async (
 
   // If a drawing/mask is provided, add it.
   if (maskImage) {
-     parts.push({ inlineData: { mimeType: 'image/png', data: maskImage.split(',')[1] } });
-     parts.push({ text: "Use the second image as a sketch/mask guidance for the changes." });
+    parts.push({ inlineData: { mimeType: 'image/png', data: maskImage.split(',')[1] } });
+    parts.push({ text: "Use the second image as a sketch/mask guidance for the changes." });
   }
 
   const response = await ai.models.generateContent({
@@ -288,7 +326,7 @@ export const editAsset = async (
 // Phase 3: Finalize (High Res) using Pro Image
 export const finalizeAsset = async (dna: BrandDNA, draftImage: string, subtype: string): Promise<string> => {
   const ai = getClient();
-  
+
   // We use the draft as a reference image to guide the high-quality generation
   const prompt = `
     Re-create this concept in extremely high resolution and production quality.
@@ -298,16 +336,16 @@ export const finalizeAsset = async (dna: BrandDNA, draftImage: string, subtype: 
   `;
 
   const parts: any[] = [
-      { inlineData: { mimeType: 'image/png', data: draftImage.split(',')[1] } },
-      { text: prompt }
+    { inlineData: { mimeType: 'image/png', data: draftImage.split(',')[1] } },
+    { text: prompt }
   ];
 
   // We should re-inject the logo here to ensure the high-res version also has the correct logo details, 
   // although the draft image usually serves as the main reference.
   // Adding the logo again reinforces its fidelity in the upscale.
   if (dna.logoImage) {
-      parts.push({ inlineData: { mimeType: 'image/png', data: dna.logoImage.split(',')[1] } });
-      parts.push({ text: "Ensure the logo (provided as the second image) is rendered with perfect clarity and fidelity." });
+    parts.push({ inlineData: { mimeType: 'image/png', data: dna.logoImage.split(',')[1] } });
+    parts.push({ text: "Ensure the logo (provided as the second image) is rendered with perfect clarity and fidelity." });
   }
 
   const response = await ai.models.generateContent({
@@ -327,7 +365,7 @@ export const finalizeAsset = async (dna: BrandDNA, draftImage: string, subtype: 
 // Phase 4: Visualize (Veo)
 export const generateVisualizationVideo = async (assetImage: string, subtype: string): Promise<string> => {
   const ai = getClient();
-  
+
   let prompt = "";
   if (subtype.toLowerCase().includes('hoodie') || subtype.toLowerCase().includes('shirt')) {
     prompt = "A cinematic video of a fashion model walking down a city street wearing this exact clothing item. Realistic fabric physics, 4k.";
@@ -341,8 +379,8 @@ export const generateVisualizationVideo = async (assetImage: string, subtype: st
     model: 'veo-3.1-fast-generate-preview',
     prompt: prompt,
     image: {
-        imageBytes: assetImage.split(',')[1],
-        mimeType: 'image/png'
+      imageBytes: assetImage.split(',')[1],
+      mimeType: 'image/png'
     },
     config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '16:9' }
   });
