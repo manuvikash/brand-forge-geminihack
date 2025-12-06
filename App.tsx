@@ -18,7 +18,7 @@ const App: React.FC = () => {
   // Handlers
   const handleSaveDNA = (newDna: BrandDNA) => {
     setDna(newDna);
-    setActiveTab('inspirations'); // Move to next step automatically
+    setActiveTab('studio'); // Move to studio after creating identity
   };
 
   return (

@@ -581,11 +581,68 @@ export const generateRealWorldPreview = async (assetImage: string, subtype: stri
   let promptJson: any = {};
   const st = subtype.toLowerCase();
   
+  // Load model image for hoodies if available (browser-compatible)
+  let modelImage: { imageBytes: string; mimeType: string } | undefined;
+  if (st.includes('hoodie') || st.includes('shirt') || st.includes('tshirt') || st.includes('t-shirt')) {
+    try {
+      // Try to fetch model.jpg or model.png from public folder
+      let modelUrl = '/model.jpg';
+      let mimeType = 'image/jpeg';
+      
+      try {
+        const response = await fetch(modelUrl);
+        if (!response.ok) throw new Error('Not found');
+        
+        const blob = await response.blob();
+        const base64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const dataUrl = reader.result as string;
+            const base64Data = dataUrl.split(',')[1];
+            resolve(base64Data);
+          };
+          reader.readAsDataURL(blob);
+        });
+        
+        modelImage = { imageBytes: base64, mimeType };
+        console.log('✅ [PREVIEW] Loaded custom model image (model.jpg)');
+      } catch {
+        // Try PNG
+        try {
+          modelUrl = '/model.png';
+          mimeType = 'image/png';
+          
+          const response = await fetch(modelUrl);
+          if (!response.ok) throw new Error('Not found');
+          
+          const blob = await response.blob();
+          const base64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const dataUrl = reader.result as string;
+              const base64Data = dataUrl.split(',')[1];
+              resolve(base64Data);
+            };
+            reader.readAsDataURL(blob);
+          });
+          
+          modelImage = { imageBytes: base64, mimeType };
+          console.log('✅ [PREVIEW] Loaded custom model image (model.png)');
+        } catch {
+          console.log('ℹ️ [PREVIEW] No custom model image found, using default');
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ [PREVIEW] Error loading model image:', error);
+    }
+  }
+  
   if (st.includes('hoodie') || st.includes('shirt') || st.includes('tshirt') || st.includes('t-shirt')) {
     promptJson = {
       "scene_description": "Professional corporate office environment during daytime",
       "subject": {
-        "type": "Young professional, 25-30 years old",
+        "type": modelImage ? "Use EXACT person from model reference image" : "Young professional, 25-30 years old",
+        "appearance": modelImage ? "Match face, skin tone, hair, and body type from model image precisely" : "Natural, professional appearance",
         "wardrobe": `Wearing the EXACT ${subtype} design from reference image - match all colors, graphics, text, logo placement precisely`,
         "action": "Walking confidently through modern glass-walled office corridor with natural stride"
       },
@@ -758,16 +815,32 @@ export const generateRealWorldPreview = async (assetImage: string, subtype: stri
   console.log('🎬 [PREVIEW] Model: veo-3.1-generate-preview');
   console.log('🎬 [PREVIEW] JSON Prompt:', JSON.stringify(promptJson, null, 2));
   console.log('🎬 [PREVIEW] Subtype:', subtype);
+  console.log('🎬 [PREVIEW] Custom model image:', modelImage ? 'YES' : 'NO');
 
-  let operation = await ai.models.generateVideos({
+  const generateConfig: any = {
     model: 'veo-3.1-generate-preview',
     prompt: prompt,
     image: {
       imageBytes: assetImage.split(',')[1],
       mimeType: 'image/png'
     },
-    config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '16:9' }
-  });
+    config: { 
+      numberOfVideos: 1, 
+      resolution: '720p', 
+      aspectRatio: '16:9',
+      enableAudio: false  // Disable audio to avoid safety filter issues
+    }
+  };
+
+  // Add model image for hoodies if available
+  if (modelImage) {
+    generateConfig.referenceImages = [{
+      imageBytes: modelImage.imageBytes,
+      mimeType: modelImage.mimeType
+    }];
+  }
+
+  let operation = await ai.models.generateVideos(generateConfig);
 
   console.log('🎬 [PREVIEW] Operation started, polling...');
 
@@ -780,10 +853,27 @@ export const generateRealWorldPreview = async (assetImage: string, subtype: stri
     console.log(`🎬 [PREVIEW] Poll ${pollCount}: ${operation.done ? 'COMPLETE' : 'In progress...'}`);
   }
 
+  if (!operation.done) {
+    console.error('❌ [PREVIEW] Operation timed out after 60 polls (5 minutes)');
+    throw new Error("Preview generation timed out - please try again");
+  }
+
+  console.log('🎬 [PREVIEW] Operation response:', JSON.stringify(operation.response, null, 2));
+
   const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
   if (!videoUri) {
     console.error('❌ [PREVIEW] No video URI in response');
-    throw new Error("Preview generation failed");
+    console.error('Full operation:', JSON.stringify(operation, null, 2));
+    
+    // Check for RAI filter blocking
+    const raiReasons = (operation.response as any)?.raiMediaFilteredReasons;
+    if (raiReasons && raiReasons.length > 0) {
+      throw new Error(`Content filtered: ${raiReasons[0]}`);
+    }
+    
+    // Check for other errors
+    const errorMsg = (operation.response as any)?.error?.message || 'Unknown error - no video generated';
+    throw new Error(`Preview generation failed: ${errorMsg}. Please try again.`);
   }
 
   console.log('✅ [PREVIEW] Video generated successfully:', videoUri);
