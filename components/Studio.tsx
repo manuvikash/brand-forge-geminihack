@@ -190,7 +190,9 @@ const Studio: React.FC<StudioProps> = ({ dna, inspirations, onAssetCreated }) =>
 
       {editingIndex !== null && (
         <AssetEditor 
-          imageUrl={drafts[editingIndex]} 
+          imageUrl={drafts[editingIndex]}
+          subtype={currentSubtype}
+          brandDNA={dna}
           onClose={() => setEditingIndex(null)}
           onUpdate={handleUpdateDraft}
           onFinalize={handleFinalize}
