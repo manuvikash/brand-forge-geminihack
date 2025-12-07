@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, Fingerprint, Lightbulb, Palette, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Fingerprint, Lightbulb, Palette, Film, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
@@ -14,6 +14,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, hasDNA }) => 
     { id: 'identity', label: 'Identity', icon: Fingerprint },
     { id: 'inspirations', label: 'Inspirations', icon: Lightbulb, disabled: !hasDNA },
     { id: 'studio', label: 'Studio', icon: Palette, disabled: !hasDNA },
+    { id: 'ads', label: 'Ads', icon: Film, disabled: !hasDNA },
   ];
 
   return (

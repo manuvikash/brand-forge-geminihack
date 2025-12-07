@@ -926,3 +926,297 @@ export const generateVisualizationVideo = async (assetImage: string, subtype: st
   console.log('✅ [VIDEO] Video generated successfully:', videoUri);
   return `${videoUri}&key=${process.env.API_KEY}`;
 };
+
+// --- AD CREATOR ---
+
+export const brainstormAdIdea = async (
+  dna: BrandDNA,
+  conversationHistory: { role: string; content: string }[]
+): Promise<string> => {
+  const ai = getClient();
+
+  const systemContext = `You are a creative advertising strategist for ${dna.name}.
+Brand DNA:
+- Visual Essence: ${dna.visualEssence}
+- Colors: ${dna.colors.join(', ')}
+- Typography: ${dna.typography}
+- Keywords: ${dna.keywords.join(', ')}
+- Design System: ${dna.designSystem}
+
+CRITICAL CONSTRAINT: All video ads will be exactly 8 SECONDS or less (Veo 3 limitation).
+
+Your role is to:
+1. Brainstorm PUNCHY, FAST-PACED video ad concepts that work in 8 seconds
+2. Focus on QUICK-CUT style: rapid transitions, single powerful message
+3. Suggest concepts with 2-3 distinct visual moments maximum
+4. Keep messaging TIGHTLY COMPOSED - one core idea, executed fast
+5. Think: TikTok/Instagram Reels energy - grab attention immediately
+6. When the user seems satisfied with a concept, encourage them to finalize it
+
+Examples of 8-second ad concepts:
+- Product reveal with dramatic transition (3-4 keyframes)
+- Before/After transformation (2 keyframes)
+- Quick product feature showcase (2-3 features, 2-3 seconds each)
+- Bold statement + product shot + logo (3 keyframes)
+
+Keep responses conversational, creative, and focused on SHORT-FORM video possibilities.`;
+
+  const messages = [
+    { role: 'user', parts: [{ text: systemContext }] },
+    ...conversationHistory.map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.content }]
+    }))
+  ];
+
+  console.log('💬 [AD BRAINSTORM] Conversation:', messages);
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.0-flash-exp',
+    contents: messages
+  });
+
+  const fullResponse = response.text || '';
+
+  console.log('💬 [AD BRAINSTORM] Response:', fullResponse);
+  return fullResponse;
+};
+
+export const generateVoiceoverScript = async (
+  dna: BrandDNA,
+  conversationHistory: { role: string; content: string }[]
+): Promise<string> => {
+  const ai = getClient();
+
+  const prompt = `Based on this ad brainstorming conversation for ${dna.name}, create a compelling voiceover script for a 6-8 second video ad.
+
+Brand DNA:
+- Visual Essence: ${dna.visualEssence}
+- Colors: ${dna.colors.join(', ')}
+- Keywords: ${dna.keywords.join(', ')}
+
+Conversation:
+${conversationHistory.map(m => `${m.role}: ${m.content}`).join('\n')}
+
+CRITICAL REQUIREMENTS:
+- Maximum 6-8 seconds when read at normal pace (about 15-20 words MAX)
+- PUNCHY and IMPACTFUL - every word counts
+- One core message only - no rambling
+- Clear brand benefit or call-to-action
+- Match the tone discussed in the conversation
+- Think: Instagram Reels / TikTok style - fast and memorable
+
+Return ONLY the voiceover script text, no additional formatting or labels.`;
+
+  console.log('🎤 [VOICEOVER] Generating script...');
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.0-flash-exp',
+    contents: prompt
+  });
+
+  const script = response.text || '';
+  console.log('🎤 [VOICEOVER] Script generated:', script);
+  return script;
+};
+
+export const generateAdKeyframes = async (
+  dna: BrandDNA,
+  conversationHistory: { role: string; content: string }[],
+  voiceoverScript: string
+): Promise<{ url: string; description: string }[]> => {
+  const ai = getClient();
+
+  // First, use Gemini to plan the keyframes with consistent visual style
+  const planningPrompt = `Based on this ad concept and voiceover script, describe 2-3 key visual moments (keyframes) for the video ad.
+
+Brand: ${dna.name}
+Visual Essence: ${dna.visualEssence}
+Colors: ${dna.colors.join(', ')}
+${dna.logoImage ? 'Brand has a logo that should be incorporated.' : ''}
+
+Voiceover Script:
+${voiceoverScript}
+
+Ad Concept (from conversation):
+${conversationHistory[conversationHistory.length - 1].content}
+
+IMPORTANT VISUAL CONSTRAINTS:
+- All keyframes must have CONSISTENT photographic aspects:
+  * Same lighting setup (e.g., golden hour, studio softbox, natural daylight)
+  * Same mood and atmosphere (e.g., energetic, calm, dramatic)
+  * Same camera style (e.g., DSLR professional, cinematic, documentary)
+  * Same color grading approach
+  * Same time of day
+  * Same weather/environmental conditions if outdoors
+
+CRITICAL - AVOID TEXT:
+- DO NOT include any text, typography, or written words in scenes
+- Veo 3 cannot generate text reliably
+- Focus on LOGO placement instead (if brand has logo)
+- Use visual storytelling, products, people, environments
+- Brand identity through colors, logo, and visual style only
+
+Provide 2-3 keyframe descriptions. Each should be a vivid, detailed scene description suitable for image generation.
+CRITICAL: Include the consistent photographic style details in EACH description.
+Return as JSON array of objects with "description" and "photographicStyle" fields.`;
+
+  console.log('🎬 [KEYFRAMES] Planning keyframes...');
+
+  const planResponse = await ai.models.generateContent({
+    model: 'gemini-2.0-flash-exp',
+    contents: planningPrompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            description: { type: Type.STRING },
+            photographicStyle: { type: Type.STRING, description: "Consistent lighting, mood, camera setup for all frames" }
+          },
+          required: ["description", "photographicStyle"]
+        }
+      }
+    }
+  });
+
+  let jsonStr = planResponse.text || "[]";
+  jsonStr = jsonStr.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+  const keyframePlans = JSON.parse(jsonStr);
+
+  console.log('🎬 [KEYFRAMES] Plans:', keyframePlans);
+
+  // Extract the shared photographic style from the first frame
+  const sharedStyle = keyframePlans[0]?.photographicStyle || 'professional advertising photography, cinematic lighting';
+
+  // Generate images for each keyframe with consistent style
+  const keyframes: { url: string; description: string }[] = [];
+
+  for (const plan of keyframePlans) {
+    const imagePrompt = `${plan.description}
+
+PHOTOGRAPHIC STYLE (MUST MATCH ACROSS ALL FRAMES):
+${sharedStyle}
+
+Brand colors: ${dna.colors.join(', ')}
+Brand essence: ${dna.visualEssence}
+${dna.logoImage ? 'Feature the brand logo prominently in the composition.' : ''}
+
+CRITICAL REQUIREMENTS:
+- NO text, typography, or written words anywhere in the image
+- Use logo for brand identity (if available)
+- Visual storytelling only - no captions, taglines, or text overlays
+- High quality, 16:9 aspect ratio, professional advertising quality`;
+
+    console.log('🖼️ [KEYFRAME] Generating image for:', plan.description);
+    console.log('🎨 [STYLE] Using consistent style:', sharedStyle);
+
+    const imageResponse = await ai.models.generateContent({
+      model: 'gemini-3-pro-image-preview',
+      contents: { parts: [{ text: imagePrompt }] },
+      config: {
+        imageConfig: {
+          aspectRatio: '16:9',
+          imageSize: '1024'
+        }
+      }
+    });
+
+    const imagePart = imageResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+    if (imagePart?.inlineData) {
+      keyframes.push({
+        url: `data:image/png;base64,${imagePart.inlineData.data}`,
+        description: plan.description
+      });
+      console.log('✅ [KEYFRAME] Generated successfully');
+    }
+  }
+
+  console.log(`🎬 [KEYFRAMES] Generated ${keyframes.length} keyframes`);
+  return keyframes;
+};
+
+export const generateAdVideo = async (
+  dna: BrandDNA,
+  voiceoverScript: string,
+  keyframes: { url: string; description: string }[],
+  onProgress?: (status: string) => void
+): Promise<string> => {
+  const ai = getClient();
+
+  onProgress?.('Creating video montage from keyframes...');
+
+  // Use the first keyframe as the primary image for video generation
+  const primaryImage = keyframes[0].url;
+
+  const videoPrompt = `Create a FAST-PACED, DYNAMIC 8-second video ad for ${dna.name}.
+
+Voiceover Script (guides pacing):
+${voiceoverScript}
+
+Visual Style:
+- ${dna.visualEssence}
+- Colors: ${dna.colors.join(', ')}
+- QUICK-CUT style: rapid transitions, energetic movement
+- Dynamic camera movements: zooms, pans, reveals
+- Professional advertising quality
+- EXACTLY 8 seconds duration (critical)
+
+The video should be PUNCHY and ATTENTION-GRABBING like a TikTok/Instagram Reel.
+Rapid cuts between visual moments. High energy. Immediate impact.
+Think: product reveal, transformation, or feature showcase in 8 seconds.`;
+
+  console.log('🎥 [AD VIDEO] Generating with Veo...');
+  console.log('🎥 [AD VIDEO] Prompt:', videoPrompt);
+
+  onProgress?.('Generating video with AI...');
+
+  let operation = await ai.models.generateVideos({
+    model: 'veo-3.1-generate-preview',
+    prompt: videoPrompt,
+    image: {
+      imageBytes: primaryImage.split(',')[1],
+      mimeType: 'image/png'
+    },
+    config: {
+      numberOfVideos: 1,
+      resolution: '720p',
+      aspectRatio: '16:9'
+    }
+  });
+
+  console.log('🎥 [AD VIDEO] Operation started, polling...');
+
+  let pollCount = 0;
+  while (!operation.done && pollCount < 60) {
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    operation = await ai.operations.getVideosOperation({ operation });
+    pollCount++;
+    onProgress?.(`Rendering video... (${pollCount * 5}s)`);
+    console.log(`🎥 [AD VIDEO] Poll ${pollCount}: ${operation.done ? 'COMPLETE' : 'In progress...'}`);
+  }
+
+  if (!operation.done) {
+    console.error('❌ [AD VIDEO] Operation timed out');
+    throw new Error("Video generation timed out - please try again");
+  }
+
+  const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
+  if (!videoUri) {
+    console.error('❌ [AD VIDEO] No video URI in response');
+    
+    const raiReasons = (operation.response as any)?.raiMediaFilteredReasons;
+    if (raiReasons && raiReasons.length > 0) {
+      throw new Error(`Content filtered: ${raiReasons[0]}`);
+    }
+    
+    throw new Error("Video generation failed - please try again");
+  }
+
+  console.log('✅ [AD VIDEO] Video generated successfully:', videoUri);
+  onProgress?.('Video ready!');
+  
+  return `${videoUri}&key=${process.env.API_KEY}`;
+};

@@ -5,6 +5,7 @@ import BrandManager from './components/BrandManager';
 import Inspirations from './components/Inspirations';
 import Studio from './components/Studio';
 import Gallery from './components/Gallery';
+import Ads from './components/Ads';
 
 const App: React.FC = () => {
   // Global State
@@ -63,6 +64,10 @@ const App: React.FC = () => {
                  </div>
                )}
             </div>
+          )}
+
+          {activeTab === 'ads' && dna && (
+            <Ads dna={dna} />
           )}
 
         </div>
